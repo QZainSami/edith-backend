@@ -1,0 +1,9 @@
+.venv
+.env
+.git
+.vscode
+__pycache__
+.pytest_cache
+*.bak
+data
+work

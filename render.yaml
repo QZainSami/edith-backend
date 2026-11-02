@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: edith
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: DEVICE_TRANSPORT
+        value: poll
+      - key: EDITH_DEVICE_TOKEN
+        generateValue: true
+      - key: EDITH_WEB_USER
+        value: edith
+      - key: EDITH_WEB_PASSWORD
+        generateValue: true
+      - key: LMSTUDIO_MODE
+        value: auto
+      - key: LMSTUDIO_URL
+        sync: false
+      - key: LMSTUDIO_MODEL
+        sync: false
+      - key: LMSTUDIO_API_KEY
+        sync: false

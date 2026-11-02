@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EDITH · Milestone 5</title>
+<style>
+body{font:16px system-ui;background:#101720;color:#e7edf7;max-width:850px;margin:35px auto;padding:0 18px}h1{letter-spacing:.12em}button,input{font:inherit;border-radius:9px;padding:10px;border:1px solid #536378}button{cursor:pointer;background:#c9f575;color:#182017}button:disabled{opacity:.5;cursor:wait}input{background:#192331;color:white;flex:1;min-width:0}form{display:flex;gap:8px}#chat{min-height:200px;max-height:440px;overflow:auto;padding:14px;background:#192331;border-radius:12px;margin:18px 0}.message{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0}.detail{font-size:14px;color:#a9bbd2;white-space:pre-wrap}#moods{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}#device{overflow-wrap:anywhere}a{color:#c9f575}
+</style>
+<h1>EDITH</h1><p>Your typed desktop companion · Milestone 5</p>
+<p class="detail">Gemma suggests a face using conversation context. Rules are the fallback; mood guesses can be wrong.</p>
+<button id="refresh">Refresh device status</button> <button id="lmstudio">Check LM Studio</button>
+<p id="device" class="detail" aria-live="polite">Checking device…</p><div id="moods"></div>
+<div id="chat" role="log" aria-live="polite"></div>
+<form id="form"><input id="text" aria-label="Message" maxlength="2000" placeholder="Try: I am happy today" required><button>Send</button></form>
+<p id="info" class="detail" aria-live="polite"></p><button id="clear">Clear chat</button> <a href="/docs">API docs</a>
+<script>
+const $=id=>document.getElementById(id);let history=[];
+async function api(path,body){const r=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw Error('Backend returned HTTP '+r.status);return r.json()}
+function message(who,text){const p=document.createElement('p');p.className='message';p.textContent=who+': '+text;$('chat').append(p);$('chat').scrollTop=$('chat').scrollHeight}
+function deviceResult(d){return d.ok?(d.queued?'Command queued: ':'Device status: ')+JSON.stringify(d.response):'Device unavailable: '+d.error}
+function busy(value){document.querySelectorAll('button').forEach(b=>b.disabled=value)}
+async function refresh(){try{const s=await api('/api/status');$('device').textContent=deviceResult(s.device)+' | Replies: '+s.lmstudio_mode}catch(e){$('device').textContent=e.message}}
+for(const name of ['normal','happy','sad','angry','sleepy','curious','thinking','uwu']){const b=document.createElement('button');b.textContent=name;b.onclick=async()=>{busy(true);try{const d=await api('/api/mood',{name});$('device').textContent=deviceResult(d.device)}catch(e){$('info').textContent=e.message}finally{busy(false)}};$('moods').append(b)}
+$('form').onsubmit=async e=>{e.preventDefault();const text=$('text').value.trim();if(!text)return;busy(true);message('You',text);$('text').value='';$('info').textContent='EDITH is replying…';try{const d=await api('/api/chat',{message:text,history});message('EDITH',d.reply);history.push({role:'user',content:text},{role:'assistant',content:d.reply.slice(0,4000)});history=history.slice(-12);$('device').textContent=deviceResult(d.device);$('info').textContent='Mood guess: '+d.emotion.mood+' | Detector: '+d.emotion.method+' | Matches: '+(d.emotion.matches.map(m=>m.phrase).join(', ')||'none')+' | '+d.emotion.reason+' | Reply: '+d.source+(d.warning?' | '+d.warning:'')}catch(e){$('info').textContent=e.message+' Check that the backend is running.'}finally{busy(false);$('text').focus()}};
+$('refresh').onclick=refresh;$('lmstudio').onclick=async()=>{try{$('info').textContent=JSON.stringify(await api('/api/lmstudio'))}catch(e){$('info').textContent=e.message}};
+$('clear').onclick=()=>{history=[];$('chat').replaceChildren();$('info').textContent='Chat cleared.'};refresh();
+</script></html>

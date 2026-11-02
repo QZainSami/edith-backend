@@ -1,0 +1,11 @@
+.venv/
+.env
+__pycache__/
+.pytest_cache/
+
+data/
+*.bak
+
+.vscode/
+pytest-cache-files-*/
+*.py[cod]
