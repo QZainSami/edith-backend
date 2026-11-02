@@ -139,7 +139,7 @@ Tests simulate model and device responses and isolate themselves from the privat
 
 Gemma returns a structured reply, mood and short reason using recent conversation. The backend validates the face against eight supported moods. If generation fails, transparent keyword/context rules provide a fixed reply and face with a warning. This is a face suggestion, not an emotion diagnosis. `emotion.py` contains the prompt, fallback rules and response validation.
 
-The browser keeps six completed exchanges in memory; Clear chat or page refresh discards them. The backend writes only device mailbox state to SQLite (`data/device.sqlite3` by default); chat messages are not stored there. Set `EDITH_STATE_DB` to another writable path if needed. Use one backend instance/worker; tabs share the physical device. Model responses are limited to 500 generated tokens per request.
+The browser keeps six completed exchanges in memory; Clear chat or page refresh discards them. The backend writes device and companion state to SQLite (`data/device.sqlite3` by default); chat messages are not stored there. Set `EDITH_STATE_DB` to another writable path if needed. Use one backend instance/worker; tabs share the physical device. Model responses are limited to 500 generated tokens per request.
 
 ## 🔌 API
 
@@ -167,7 +167,7 @@ Commit and push your source changes before switching machines. If local edits bl
 
 ## 🗺️ Hosting and future features
 
-Deployment preparation: [HOSTING.md](HOSTING.md). Planned touch, wake-word, voice and speaking-mouth features: [ROADMAP.md](ROADMAP.md). Your home PC must remain awake and online if it serves the model for a hosted backend. Free hosting does not make localhost on your PC reachable from the cloud.
+Deployment preparation: [HOSTING.md](HOSTING.md). Planned touch, wake-word and audio-synchronized speaking features: [ROADMAP.md](ROADMAP.md). Your home PC must remain awake and online if it serves the model for a hosted backend. Free hosting does not make localhost on your PC reachable from the cloud.
 
 Firmware: [QZainSami/edith-middleware](https://github.com/QZainSami/edith-middleware).
 
@@ -222,3 +222,18 @@ uv installs the required Python version automatically. Keep project dependencies
 - [uv installation](https://docs.astral.sh/uv/getting-started/installation/)
 - [LM Studio requirements](https://lmstudio.ai/docs/app/system-requirements)
 - [LM Studio API](https://lmstudio.ai/docs/developer/openai-compat)
+
+## 💤 Dashboard, timers and speaking animation
+
+Update and upload the matching middleware firmware, restart this backend using the usual uv command, then refresh the browser. No new Python packages or changes to existing private credentials are required.
+
+- **Sleep / dashboard** shows the date, clock, city, temperature, humidity and a weather icon. This is a connected display mode, not ESP32 deep sleep.
+- Search for your city, choose the correct result, then **Save location & time zone**. The offset starts from your browser; Pakistan is `300` minutes. Save it again after a time-zone or daylight-saving change.
+- Weather uses [Open-Meteo](https://open-meteo.com/) and refreshes about every 10 minutes. Failed requests retain the last reading; the OLED marks readings older than 30 minutes with `*`. Missing readings display placeholders. Internet access is required for weather.
+- Start a timer from 1 second to 24 hours. It opens a dedicated OLED countdown with large digits, a progress bar and a slow orbiting dot, and continues on the ESP32 during a temporary network outage. **TIME UP** remains until **Cancel / dismiss**. There is no audible alarm yet. Backend state persists across restarts; a powered-off ESP32 needs a connection to restore its timer.
+- Type `EDITH sleep`, `EDITH wake up`, `set a timer for 5 minutes`, or `cancel timer`. Only these explicit commands operate controls; ordinary conversation goes to the normal chat flow.
+- Ordinary chat wakes the face. When a reply arrives, the mouth animates for an estimated reading duration (1.5–20 seconds). This simulates speaking; there is no generated audio or audio-synchronized lip movement yet.
+
+The clock is synchronized from the backend and advances locally between updates. No battery percentage is shown because battery sensing hardware is not configured.
+
+New API routes: `POST /api/screen`, `POST /api/timer`, `GET /api/locations`, `POST /api/dashboard`, and authenticated `POST /api/device/poll-v2`. Schemas are in `/docs`. The original face-only poll endpoint remains available for older firmware, but dashboard and mouth animation require version 2 firmware. In local mode the backend also sends `POST /companion` to the ESP32. SQLite now stores dashboard preferences, timer and transient speaking state alongside the device mailbox; it does not store chat text.

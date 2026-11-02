@@ -23,3 +23,7 @@
 - Select mic, speaker amplifier, speaker and touch input before wiring; verify voltage and current requirements. A buzzer provides tones, not speech.
 - Reference for ideas: https://github.com/SathiyaSenpai/deskbot
 - Do not add relay control or hardware actions as LLM tools without an explicit feature decision.
+
+## Added: companion display controls
+- Connected clock/weather dashboard, persistent timer, typed control commands and simulated speaking mouth.
+- Real audio synchronization remains part of the future voice milestone.

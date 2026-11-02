@@ -4,6 +4,12 @@ from contextlib import asynccontextmanager
 import os
 import secrets
 import base64
+import contextlib
+import re
+import time
+import uuid
+from companion import Companion, parse_command
+from weather_service import refresh_weather, weather_loop
 from device_mailbox import Mailbox
 from pathlib import Path
 from emotion import detect, RESPONSE_FORMAT, SYSTEM_PROMPT, parse_model
@@ -84,6 +90,7 @@ class Message(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    utc_offset: int | None = Field(default=None, ge=-720, le=840)
     message: str = Field(min_length=1, max_length=2000, pattern=r'\S')
     history: list[Message] = Field(default_factory=list, max_length=12)
 
@@ -110,11 +117,20 @@ async def lifespan(app: FastAPI):
     async with httpx.AsyncClient(trust_env=False, follow_redirects=False) as client:
         app.state.client = client
         app.state.action_lock = asyncio.Lock()
-        if DEVICE_TRANSPORT == 'poll':
-            database = Path(os.getenv('EDITH_STATE_DB', str(ROOT / 'data' / 'device.sqlite3')))
-            database.parent.mkdir(parents=True, exist_ok=True)
-            app.state.mailbox = Mailbox(database)
-        yield
+        database = Path(os.getenv('EDITH_STATE_DB', str(ROOT / 'data' / 'device.sqlite3')))
+        database.parent.mkdir(parents=True, exist_ok=True)
+        app.state.mailbox = Mailbox(database)
+        app.state.panel = Companion(database)
+        app.state.weather_lock = asyncio.Lock()
+        app.state.transport = DEVICE_TRANSPORT
+        app.state.local_command = {'command_id': None, 'desired_mood': 'normal'}
+        worker = asyncio.create_task(weather_loop(app, sync_local))
+        try:
+            yield
+        finally:
+            worker.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await worker
 
 
 app = FastAPI(title='EDITH Milestone 5', lifespan=lifespan)
@@ -183,6 +199,8 @@ async def device(path: str, params=None) -> dict:
     if not DEVICE_URL:
         return {'ok': False, 'configured': False, 'error': 'Set EDITH_IP in .env and restart.'}
     try:
+        if path == '/mood':
+            app.state.local_command = {'command_id': str(uuid.uuid4()), 'desired_mood': params['name']}
         response = await app.state.client.get(DEVICE_URL + path, params=params, timeout=DEVICE_TIMEOUT)
         response.raise_for_status()
         try:
@@ -203,7 +221,7 @@ async def index():
 async def status():
     return {'name': 'EDITH', 'device_url': DEVICE_URL if DEVICE_TRANSPORT == 'local' else None, 'transport': DEVICE_TRANSPORT,
             'device': await device('/status'), 'moods': MOODS,
-            'lmstudio_mode': LMSTUDIO_MODE, 'lmstudio_model': MODEL}
+            'lmstudio_mode': LMSTUDIO_MODE, 'lmstudio_model': MODEL, 'companion': app.state.panel.snapshot()}
 
 
 @app.get('/api/lmstudio')
@@ -220,13 +238,33 @@ async def lmstudio_status():
 @app.post('/api/mood')
 async def set_mood(body: MoodRequest):
     async with app.state.action_lock:
-        return {'mood': body.name, 'device': await device('/mood', {'name': body.name})}
+        app.state.panel.screen('face')
+        result = await device('/mood', {'name': body.name})
+        await sync_local()
+        return {'mood': body.name, 'device': result}
 
 
 @app.post('/api/chat')
 async def chat(body: ChatRequest):
     # Serialize hardware actions so simultaneous chats cannot restore stale faces.
     async with app.state.action_lock:
+        if body.utc_offset is not None: app.state.panel.update(utc_offset=body.utc_offset)
+        command = parse_command(body.message)
+        if command:
+            if command[0] == 'screen':
+                app.state.panel.screen(command[1])
+                reply = 'Dashboard on. The clock and timers stay active.' if command[1] == 'dashboard' else 'I am awake!'
+            elif command[0] == 'timer':
+                app.state.panel.timer(command[1])
+                if command[1]: app.state.panel.screen('dashboard')
+                reply = f'Timer started for {command[1]} seconds.' if command[1] else 'Timer cleared.'
+            else:
+                reply = command[1]
+            if app.state.panel.read()['mode'] == 'face': app.state.panel.speak(reply)
+            result = await sync_local()
+            return {'reply': reply, 'source':'control', 'emotion': {'mood':'normal', 'method':'control', 'matches':[], 'reason':'Explicit device command.'},
+                    'device': result, 'warning':None, 'thinking_device':None, 'companion':app.state.panel.snapshot()}
+        app.state.panel.screen('face')
         detection = detect(body.message, body.history)
         mood = detection['mood']
         reply, source, warning = REPLIES[mood], 'rules', None
@@ -254,6 +292,79 @@ async def chat(body: ChatRequest):
                 except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError) as exc:
                     warning = (str(exc) if isinstance(exc, ValueError) else failure(exc)) + ' Using a fixed rule-based reply.'
         finally:
+            app.state.panel.speak(reply)
             final_device = await device('/mood', {'name': mood})
+            await sync_local()
         return {'reply': reply, 'source': source, 'emotion': detection,
                 'device': final_device, 'thinking_device': thinking, 'warning': warning}
+
+
+class ScreenRequest(BaseModel):
+    mode: Literal['face', 'dashboard']
+    utc_offset: int | None = Field(default=None, ge=-720, le=840)
+
+class TimerRequest(BaseModel):
+    utc_offset: int | None = Field(default=None, ge=-720, le=840)
+    seconds: int = Field(ge=0, le=86400, strict=True)
+
+class DashboardRequest(BaseModel):
+    city: str = Field(min_length=1, max_length=80)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    utc_offset: int = Field(ge=-720, le=840)
+
+async def sync_local():
+    if DEVICE_TRANSPORT == 'poll':
+        return {'ok':True, 'queued':True, 'response':{'delivery':'Settings saved; awaiting firmware v2 polling.'}}
+    if not DEVICE_URL:
+        return {'ok':False, 'error':'Set EDITH_IP to use the OLED.'}
+    try:
+        response = await app.state.client.post(DEVICE_URL+'/companion',
+            content=app.state.panel.wire(app.state.local_command),
+            headers={'Content-Type':'text/plain'}, timeout=DEVICE_TIMEOUT)
+        response.raise_for_status()
+        return {'ok':True, 'response':'Settings delivered to firmware.'}
+    except httpx.HTTPError:
+        return {'ok':False, 'error':'Companion settings not delivered. Check device/network and upload firmware v2.'}
+
+@app.post('/api/device/poll-v2')
+async def poll_device_v2(request: Request):
+    try:
+        app.state.mailbox.poll(request.headers.get('x-edith-ack',''), request.headers.get('x-edith-mood','normal'))
+        app.state.mailbox.telemetry(2, request.headers.get('x-edith-mode','face'))
+    except ValueError:
+        return JSONResponse({'error':'Invalid device report'}, status_code=422)
+    return PlainTextResponse(app.state.panel.wire(app.state.mailbox.status()))
+
+@app.post('/api/screen')
+async def screen(body: ScreenRequest):
+    app.state.panel.screen(body.mode, body.utc_offset)
+    return {'companion':app.state.panel.snapshot(), 'device':await sync_local()}
+
+@app.post('/api/timer')
+async def timer(body: TimerRequest):
+    if body.utc_offset is not None: app.state.panel.update(utc_offset=body.utc_offset)
+    app.state.panel.timer(body.seconds)
+    if body.seconds: app.state.panel.screen('dashboard')
+    return {'companion':app.state.panel.snapshot(), 'device':await sync_local()}
+
+@app.get('/api/locations')
+async def locations(q: str = ''):
+    if not 2 <= len(q.strip()) <= 80:
+        return JSONResponse({'error':'Enter a city name between 2 and 80 characters.'}, status_code=422)
+    try:
+        response = await app.state.client.get('https://geocoding-api.open-meteo.com/v1/search',
+            params={'name':q.strip(), 'count':5, 'language':'en', 'format':'json'}, timeout=5)
+        response.raise_for_status()
+        results = response.json().get('results', [])
+        return {'results':[{'city':', '.join(filter(None,[r['name'],r.get('admin1'),r.get('country')])),
+                            'latitude':r['latitude'], 'longitude':r['longitude']} for r in results]}
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        return JSONResponse({'error':'City lookup unavailable. Try again later.'}, status_code=502)
+
+@app.post('/api/dashboard')
+async def dashboard(body: DashboardRequest):
+    app.state.panel.update(city=body.city, latitude=body.latitude, longitude=body.longitude,
+                           utc_offset=body.utc_offset, weather=None, weather_attempt=0)
+    await refresh_weather(app, force=True)
+    return {'companion':app.state.panel.snapshot(), 'device':await sync_local()}

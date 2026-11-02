@@ -15,3 +15,10 @@ os.environ.update({
     'EDITH_WEB_PASSWORD': '',
     'EDITH_DEVICE_TOKEN': '',
 })
+
+
+import pytest
+
+@pytest.fixture(autouse=True)
+def isolated_state_database(monkeypatch, tmp_path):
+    monkeypatch.setenv('EDITH_STATE_DB', str(tmp_path / 'device.sqlite3'))

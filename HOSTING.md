@@ -55,3 +55,6 @@ Render free hosting may sleep or restart, with cold-start delays and monthly usa
 - Render free limits: https://render.com/docs/free
 - uv Docker workflow: https://docs.astral.sh/uv/guides/integration/docker/
 - Firmware inspiration, not copied code: https://github.com/SathiyaSenpai/deskbot
+
+## Companion protocol v2
+New firmware polls /api/device/poll-v2 using the existing device token. Responses are complete 16-line EDITH2 snapshots carrying face command, display mode, speech event, backend time, weather and timer. Legacy /api/device/poll remains face-only. Dashboard settings and timer share EDITH_STATE_DB; keep this file on persistent storage. Weather uses outbound HTTPS to Open-Meteo. No extra incoming ESP32 port is needed in polling mode.

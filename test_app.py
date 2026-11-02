@@ -40,7 +40,7 @@ def test_device_and_validation(monkeypatch):
             assert client.get('/api/status').json()['device']['ok']
             for mood in edith.MOODS:
                 assert client.post('/api/mood', json={'name': mood}).json()['device']['ok']
-                assert calls[-1].url.params['name'] == mood
+                assert [r for r in calls if r.url.path == '/mood'][-1].url.params['name'] == mood
             assert client.post('/api/mood', json={'name': 'invalid'}).status_code == 422
             assert client.post('/api/chat', json={'message': '   '}).status_code == 422
             assert client.post('/api/chat', json={'message': 'x' * 2001}).status_code == 422
@@ -80,7 +80,7 @@ def test_lmstudio_success_and_fallback(monkeypatch):
             result = client.post('/api/chat', json={'message': 'sad'}).json()
             assert result['source'] == 'lmstudio'
             assert calls[0].url.params['name'] == 'thinking'
-            assert calls[-1].url.params['name'] == 'sad'
+            assert [r for r in calls if r.url.path == '/mood'][-1].url.params['name'] == 'sad'
         def timeout(request):
             if request.url.path == '/v1/chat/completions':
                 raise httpx.ReadTimeout('slow', request=request)

@@ -11,7 +11,10 @@ class Mailbox:
         self.path, self.clock = str(path), clock
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS state (slot INTEGER PRIMARY KEY, command TEXT, desired TEXT, expires REAL, ack TEXT, reported TEXT, seen REAL)')
-            db.execute("INSERT OR IGNORE INTO state VALUES (1, '', 'normal', 0, '', 'normal', 0)")
+            columns = {row[1] for row in db.execute('PRAGMA table_info(state)')}
+            if 'protocol' not in columns: db.execute('ALTER TABLE state ADD COLUMN protocol INTEGER DEFAULT 1')
+            if 'reported_mode' not in columns: db.execute("ALTER TABLE state ADD COLUMN reported_mode TEXT DEFAULT 'face'")
+            db.execute("INSERT OR IGNORE INTO state (slot,command,desired,expires,ack,reported,seen) VALUES (1, '', 'normal', 0, '', 'normal', 0)")
 
     @contextmanager
     def connect(self):
@@ -39,12 +42,19 @@ class Mailbox:
             command, mood, expires = db.execute('SELECT command, desired, expires FROM state WHERE slot=1').fetchone()
         return (command, mood) if command and command != ack and expires > self.clock() else None
 
+    def telemetry(self, protocol, mode):
+        if mode not in ('face', 'dashboard'): raise ValueError('Invalid display mode')
+        with self.connect() as db:
+            db.execute('UPDATE state SET protocol=?, reported_mode=? WHERE slot=1', (protocol, mode))
+
     def status(self):
         with self.connect() as db:
             command, desired, expires, ack, reported, seen = db.execute('SELECT command, desired, expires, ack, reported, seen FROM state WHERE slot=1').fetchone()
+        with self.connect() as db:
+            protocol, reported_mode = db.execute('SELECT protocol, reported_mode FROM state WHERE slot=1').fetchone()
         online = seen > 0 and self.clock() - seen < 20
         applied = bool(command and command == ack and reported == desired)
-        return {'online': online, 'mood': reported, 'desired_mood': desired,
+        return {'protocol': protocol, 'reported_mode': reported_mode, 'online': online, 'mood': reported, 'desired_mood': desired,
                 'command_id': command or None, 'applied': applied,
                 'pending': bool(command and not applied and expires > self.clock()),
                 'expired': bool(command and not applied and expires <= self.clock()),
