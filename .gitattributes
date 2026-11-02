@@ -4,3 +4,6 @@
 *.h text eol=lf
 Dockerfile text eol=lf
 *.yaml text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf

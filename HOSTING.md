@@ -1,3 +1,7 @@
+> Verification update: the user successfully built/uploaded the firmware and verified real LAN polling (online=true, matching mood, applied=true). Linux instructions are in README.md; Linux hardware testing and hosted HTTPS remain pending.
+
+> Update: firmware built successfully in the user's VS Code session on 2026-11-02. Private settings are now prepared for the LAN polling test; see LOCAL_POLL_TEST.md. No upload has been performed.
+
 # Milestone 5: hosted device connection
 
 ## What was implemented
