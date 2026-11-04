@@ -249,3 +249,6 @@ Update all three projects together: restart this backend, build/upload the middl
 - Alarms are **visual only**: there is no speaker alarm or Android background notification. The ESP32 must stay powered; after power loss it needs a backend connection to restore state. A missed alarm appears due on reconnection.
 
 The v2 wire packet retains its original 16 fields and appends six optional fields: `TOOLS1`, stopwatch event ID, elapsed milliseconds, running flag, alarm event ID and remaining alarm milliseconds (`-1` means none). Firmware accepts legacy 16-field packets. Stopwatch mode requires the updated firmware; old firmware will not understand that mode. All packets remain below the existing 512-byte limit.
+
+## 💬 Reply style
+The system prompt in emotion.py asks for warm, direct replies, normally 1–2 short sentences (about 15–45 words). One relevant emoji is optional; emojis are avoided in serious distress and code/commands. Requests for detailed explanations may receive longer answers. This is a prompt preference, not a guaranteed word cap. Restart the backend after editing the prompt.

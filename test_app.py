@@ -72,13 +72,14 @@ def test_lmstudio_success_and_fallback(monkeypatch):
     def handler(request):
         calls.append(request)
         if request.url.path == '/v1/chat/completions':
-            return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps({'reply': 'Hello from the local model', 'mood': 'sad', 'reason': 'User is sad.'})}}]})
+            return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps({'reply': 'Here for you 💚', 'mood': 'sad', 'reason': 'User is sad.'})}}]})
         return httpx.Response(200, json={'mood': 'ok'})
     with TestClient(edith.app) as client:
         with mocked_remote(handler) as remote:
             edith.app.state.client = remote
             result = client.post('/api/chat', json={'message': 'sad'}).json()
             assert result['source'] == 'lmstudio'
+            assert result['reply'] == 'Here for you 💚'
             assert calls[0].url.params['name'] == 'thinking'
             assert [r for r in calls if r.url.path == '/mood'][-1].url.params['name'] == 'sad'
         def timeout(request):
