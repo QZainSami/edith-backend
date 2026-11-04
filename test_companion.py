@@ -29,7 +29,7 @@ def test_persisted_timer_wire_and_speech(tmp_path):
     assert restored.snapshot()['mode']=='dashboard'
     assert restored.snapshot()['timer_remaining_ms']==48000
     fields=panel.wire(box.status()).splitlines()
-    assert len(fields)==16 and fields[0]=='EDITH2' and fields[8]=='300'
+    assert len(fields)==22 and fields[0]=='EDITH2' and fields[8]=='300'
     now[0]+=50
     assert panel.snapshot()['timer_done']
     panel.timer(0)
@@ -69,7 +69,7 @@ def test_control_endpoints_and_v2(monkeypatch):
         assert state['mode']=='dashboard' and state['timer_remaining_ms']>0
         headers={'Authorization':'Bearer '+'d'*48,'X-Edith-Mood':'normal','X-Edith-Mode':'dashboard'}
         packet=client.post('/api/device/poll-v2',headers=headers)
-        assert packet.status_code==200 and len(packet.text.splitlines())==16
+        assert packet.status_code==200 and len(packet.text.splitlines())==22
         assert client.get('/api/status').json()['device']['response']['protocol']==2
         client.post('/api/timer',json={'seconds':0})
         assert client.get('/api/status').json()['companion']['timer_remaining_ms']==-1

@@ -300,7 +300,7 @@ async def chat(body: ChatRequest):
 
 
 class ScreenRequest(BaseModel):
-    mode: Literal['face', 'dashboard']
+    mode: Literal['face', 'dashboard', 'stopwatch']
     utc_offset: int | None = Field(default=None, ge=-720, le=840)
 
 class TimerRequest(BaseModel):
@@ -347,6 +347,28 @@ async def timer(body: TimerRequest):
     app.state.panel.timer(body.seconds)
     if body.seconds: app.state.panel.screen('dashboard')
     return {'companion':app.state.panel.snapshot(), 'device':await sync_local()}
+
+class StopwatchRequest(BaseModel):
+    action: Literal['start', 'pause', 'reset']
+
+class AlarmRequest(BaseModel):
+    at: int | None = Field(default=None, strict=True)
+    utc_offset: int | None = Field(default=None, ge=-720, le=840)
+
+@app.post('/api/stopwatch')
+async def stopwatch(body: StopwatchRequest):
+    async with app.state.action_lock:
+        app.state.panel.stopwatch(body.action)
+        return {'companion':app.state.panel.snapshot(), 'device':await sync_local()}
+
+@app.post('/api/alarm')
+async def alarm(body: AlarmRequest):
+    if body.at is not None and not time.time() < body.at <= time.time() + 7*86400:
+        return JSONResponse({'error':'Choose a future alarm within the next 7 days.'}, status_code=422)
+    async with app.state.action_lock:
+        if body.utc_offset is not None: app.state.panel.update(utc_offset=body.utc_offset)
+        app.state.panel.alarm(body.at)
+        return {'companion':app.state.panel.snapshot(), 'device':await sync_local()}
 
 @app.get('/api/locations')
 async def locations(q: str = ''):

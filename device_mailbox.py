@@ -43,7 +43,7 @@ class Mailbox:
         return (command, mood) if command and command != ack and expires > self.clock() else None
 
     def telemetry(self, protocol, mode):
-        if mode not in ('face', 'dashboard'): raise ValueError('Invalid display mode')
+        if mode not in ('face', 'dashboard', 'stopwatch'): raise ValueError('Invalid display mode')
         with self.connect() as db:
             db.execute('UPDATE state SET protocol=?, reported_mode=? WHERE slot=1', (protocol, mode))
 

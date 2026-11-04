@@ -237,3 +237,15 @@ Update and upload the matching middleware firmware, restart this backend using t
 The clock is synchronized from the backend and advances locally between updates. No battery percentage is shown because battery sensing hardware is not configured.
 
 New API routes: `POST /api/screen`, `POST /api/timer`, `GET /api/locations`, `POST /api/dashboard`, and authenticated `POST /api/device/poll-v2`. Schemas are in `/docs`. The original face-only poll endpoint remains available for older firmware, but dashboard and mouth animation require version 2 firmware. In local mode the backend also sends `POST /companion` to the ESP32. SQLite now stores dashboard preferences, timer and transient speaking state alongside the device mailbox; it does not store chat text.
+
+## ⚡ Boot animation, stopwatch and alarm
+
+Update all three projects together: restart this backend, build/upload the middleware, then build/install the Android app. No credentials or new packages are needed.
+
+- Startup now includes a short scan-line/glitch sequence on Android and the OLED.
+- Stopwatch: start/resume, pause and reset via `POST /api/stopwatch` with `{"action":"start"}`, `"pause"` or `"reset"`. Elapsed time is persisted in SQLite, survives backend restarts and continues locally on a powered ESP32 through temporary network loss. Limit: 99:59:59.99. Starting, pausing or resetting selects the stopwatch display; face/dashboard controls can leave it while it runs in the background.
+- Alarm: `POST /api/alarm` with `{"at":UNIX_SECONDS,"utc_offset":300}` schedules one future alarm within 7 days; `{"at":null}` cancels/dismisses it. Android and the web page choose the next occurrence of a selected clock time in their own local time zone. The alarm is one-time, not recurring. The OLED alert remains until dismissed.
+- Display priority: due alarm, active/finished timer, selected stopwatch, dashboard/face. Dismissing an alarm reveals the underlying display.
+- Alarms are **visual only**: there is no speaker alarm or Android background notification. The ESP32 must stay powered; after power loss it needs a backend connection to restore state. A missed alarm appears due on reconnection.
+
+The v2 wire packet retains its original 16 fields and appends six optional fields: `TOOLS1`, stopwatch event ID, elapsed milliseconds, running flag, alarm event ID and remaining alarm milliseconds (`-1` means none). Firmware accepts legacy 16-field packets. Stopwatch mode requires the updated firmware; old firmware will not understand that mode. All packets remain below the existing 512-byte limit.

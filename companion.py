@@ -21,7 +21,11 @@ class Companion:
     def read(self):
         db = sqlite3.connect(self.path)
         try:
-            return json.loads(db.execute('SELECT body FROM companion WHERE slot=1').fetchone()[0])
+            state = json.loads(db.execute('SELECT body FROM companion WHERE slot=1').fetchone()[0])
+            for key, value in {'stopwatch_id':'', 'stopwatch_ms':0, 'stopwatch_started':0,
+                               'alarm_id':'', 'alarm_at':0}.items():
+                state.setdefault(key, value)
+            return state
         finally:
             db.close()
 
@@ -51,6 +55,23 @@ class Companion:
         duration = max(1500, min(20000, len(reply.split()) * 330))
         self.update(speech_id=str(uuid.uuid4()), speech_end=self.clock()+duration/1000)
 
+    def stopwatch(self, action):
+        # Compute and change elapsed time inside one write transaction.
+        with sqlite3.connect(self.path) as db:
+            db.execute('BEGIN IMMEDIATE')
+            state = json.loads(db.execute('SELECT body FROM companion WHERE slot=1').fetchone()[0])
+            now = self.clock()
+            started = state.get('stopwatch_started', 0)
+            elapsed = min(359999990, max(0, state.get('stopwatch_ms', 0) + (int((now-started)*1000) if started else 0)))
+            state.update(stopwatch_ms=0 if action == 'reset' else elapsed,
+                         stopwatch_started=now if action == 'start' and elapsed < 359999990 else 0,
+                         stopwatch_id=str(uuid.uuid4()), revision=str(uuid.uuid4()), mode='stopwatch', speech_end=0)
+            db.execute('UPDATE companion SET body=? WHERE slot=1', (json.dumps(state),))
+        return self.snapshot()
+
+    def alarm(self, at):
+        return self.update(alarm_id=str(uuid.uuid4()) if at else '', alarm_at=at or 0)
+
     def snapshot(self):
         state = self.read()
         now = self.clock()
@@ -59,6 +80,11 @@ class Companion:
         state['timer_done'] = bool(state['timer_id'] and state['timer_remaining_ms'] == 0)
         state['speech_remaining_ms'] = max(0, min(20000, int((state['speech_end']-now)*1000)))
         state['weather_age'] = max(0, int(now-state['weather']['fetched_at'])) if state['weather'] else -1
+        started = state['stopwatch_started']
+        state['stopwatch_elapsed_ms'] = min(359999990, max(0, state['stopwatch_ms'] + (int((now-started)*1000) if started else 0)))
+        state['stopwatch_running'] = bool(started and state['stopwatch_elapsed_ms'] < 359999990)
+        state['alarm_remaining_ms'] = max(0, math.ceil((state['alarm_at']-now)*1000)) if state['alarm_id'] else -1
+        state['alarm_due'] = bool(state['alarm_id'] and state['alarm_remaining_ms'] == 0)
         return state
 
     def wire(self, mailbox):
@@ -73,7 +99,9 @@ class Companion:
                  state['speech_remaining_ms'], state['now'], state['utc_offset'], city,
                  weather.get('code', -1), round(weather.get('temperature', -999.9)*10),
                  weather.get('humidity', -1), state['weather_age'],
-                 state['timer_id'] or '-', state['timer_remaining_ms']]
+                 state['timer_id'] or '-', state['timer_remaining_ms'],
+                 'TOOLS1', state['stopwatch_id'] or '-', state['stopwatch_elapsed_ms'],
+                 int(state['stopwatch_running']), state['alarm_id'] or '-', state['alarm_remaining_ms']]
         return '\n'.join(map(str, lines)) + '\n'
 
 

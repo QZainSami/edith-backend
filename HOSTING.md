@@ -58,3 +58,5 @@ Render free hosting may sleep or restart, with cold-start delays and monthly usa
 
 ## Companion protocol v2
 New firmware polls /api/device/poll-v2 using the existing device token. Responses are complete 16-line EDITH2 snapshots carrying face command, display mode, speech event, backend time, weather and timer. Legacy /api/device/poll remains face-only. Dashboard settings and timer share EDITH_STATE_DB; keep this file on persistent storage. Weather uses outbound HTTPS to Open-Meteo. No extra incoming ESP32 port is needed in polling mode.
+
+Timing tools: /api/stopwatch and /api/alarm use the existing browser login. Keep SQLite on persistent storage. Alarm/stopwatch state is carried by the optional TOOLS1 extension to the v2 snapshot; upload matching firmware before using stopwatch mode.
