@@ -3,7 +3,7 @@ WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
-COPY app.py emotion.py device_mailbox.py companion.py weather_service.py index.html ./
+COPY app.py emotion.py storage.py device_mailbox.py companion.py weather_service.py index.html ./
 RUN useradd --create-home edith && mkdir -p /app/data && chown -R edith:edith /app
 USER edith
 ENV DEVICE_TRANSPORT=poll

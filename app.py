@@ -11,6 +11,7 @@ import uuid
 from companion import Companion, parse_command
 from weather_service import refresh_weather, weather_loop
 from device_mailbox import Mailbox
+from storage import Database, StorageUnavailable
 from pathlib import Path
 from emotion import detect, RESPONSE_FORMAT, SYSTEM_PROMPT, parse_model
 from typing import Literal
@@ -59,6 +60,22 @@ LMSTUDIO_MODE = os.getenv('LMSTUDIO_MODE', 'auto').lower()
 if LMSTUDIO_MODE not in ('off', 'auto'):
     raise ValueError('LMSTUDIO_MODE must be off or auto')
 MODEL = os.getenv('LMSTUDIO_MODEL', '').strip()
+LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'lmstudio').strip().lower()
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite').strip()
+GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
+if LLM_PROVIDER not in ('lmstudio', 'gemini', 'rules'):
+    raise ValueError('LLM_PROVIDER must be lmstudio, gemini or rules')
+if LLM_PROVIDER == 'gemini' and not GEMINI_API_KEY:
+    raise ValueError('Set GEMINI_API_KEY when LLM_PROVIDER=gemini')
+if not re.fullmatch(r'[a-zA-Z0-9_.-]+', GEMINI_MODEL):
+    raise ValueError('GEMINI_MODEL must be a model ID without a URL or path')
+
+def active_model():
+    return GEMINI_MODEL if LLM_PROVIDER == 'gemini' else MODEL
+
+def active_mode():
+    return 'off' if LLM_PROVIDER == 'rules' else ('auto' if LLM_PROVIDER == 'gemini' else LMSTUDIO_MODE)
 
 
 def seconds(name: str, default: str) -> float:
@@ -100,7 +117,8 @@ class MoodRequest(BaseModel):
 
 
 def model_headers() -> dict:
-    return {'Authorization': 'Bearer ' + LMSTUDIO_API_KEY} if LMSTUDIO_API_KEY else {}
+    key = GEMINI_API_KEY if LLM_PROVIDER == 'gemini' else LMSTUDIO_API_KEY
+    return {'Authorization': 'Bearer ' + key} if key else {}
 
 
 def failure(exc: Exception) -> str:
@@ -117,10 +135,19 @@ async def lifespan(app: FastAPI):
     async with httpx.AsyncClient(trust_env=False, follow_redirects=False) as client:
         app.state.client = client
         app.state.action_lock = asyncio.Lock()
-        database = Path(os.getenv('EDITH_STATE_DB', str(ROOT / 'data' / 'device.sqlite3')))
-        database.parent.mkdir(parents=True, exist_ok=True)
-        app.state.mailbox = Mailbox(database)
-        app.state.panel = Companion(database)
+        database_url = os.getenv('DATABASE_URL', '').strip()
+        if database_url and not database_url.startswith(('postgres://', 'postgresql://')):
+            raise ValueError('DATABASE_URL must be a PostgreSQL connection URL')
+        if os.getenv('RENDER') == 'true' and (not database_url or DEVICE_TRANSPORT != 'poll'):
+            raise ValueError('Render requires DATABASE_URL for persistent PostgreSQL and DEVICE_TRANSPORT=poll')
+        database = Database(database_url or os.getenv('EDITH_STATE_DB', str(ROOT / 'data' / 'device.sqlite3')))
+        app.state.database = database
+        try:
+            app.state.mailbox = await asyncio.to_thread(Mailbox, database)
+            app.state.panel = await asyncio.to_thread(Companion, database)
+        except Exception:
+            database.close()
+            raise
         app.state.weather_lock = asyncio.Lock()
         app.state.transport = DEVICE_TRANSPORT
         app.state.local_command = {'command_id': None, 'desired_mood': 'normal'}
@@ -131,9 +158,14 @@ async def lifespan(app: FastAPI):
             worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
+            database.close()
 
 
 app = FastAPI(title='EDITH Milestone 5', lifespan=lifespan)
+
+@app.exception_handler(StorageUnavailable)
+async def storage_unavailable(request, exc):
+    return JSONResponse({'error':'State database unavailable. Retry shortly or check its hosting limits.'}, status_code=503)
 
 
 @app.middleware('http')
@@ -221,18 +253,25 @@ async def index():
 async def status():
     return {'name': 'EDITH', 'device_url': DEVICE_URL if DEVICE_TRANSPORT == 'local' else None, 'transport': DEVICE_TRANSPORT,
             'device': await device('/status'), 'moods': MOODS,
-            'lmstudio_mode': LMSTUDIO_MODE, 'lmstudio_model': MODEL, 'companion': app.state.panel.snapshot()}
+            'lmstudio_mode': active_mode(), 'lmstudio_model': active_model(),
+            'model_provider':LLM_PROVIDER, 'model_mode':active_mode(), 'model_id':active_model(),
+            'storage':'postgresql' if app.state.database.postgres else 'sqlite', 'companion': app.state.panel.snapshot()}
 
 
 @app.get('/api/lmstudio')
+@app.get('/api/model')
 async def lmstudio_status():
+    if active_mode() == 'off':
+        return {'ok':False, 'mode':'off', 'provider':LLM_PROVIDER, 'selected':active_model(), 'models':[], 'error':'AI replies are disabled; rules mode is enabled.'}
     try:
-        response = await app.state.client.get(LMSTUDIO_URL + '/v1/models', headers=model_headers(), timeout=3)
+        origin = GEMINI_URL if LLM_PROVIDER == 'gemini' else LMSTUDIO_URL + '/v1'
+        response = await app.state.client.get(origin + '/models', headers=model_headers(), timeout=5)
         response.raise_for_status()
         models = [m['id'] for m in response.json()['data']]
-        return {'ok': True, 'models': models, 'selected': MODEL, 'mode': LMSTUDIO_MODE}
+        if LLM_PROVIDER == 'gemini': models = [name.removeprefix('models/') for name in models]
+        return {'ok': active_model() in models, 'models': models, 'selected': active_model(), 'mode': active_mode(), 'provider':LLM_PROVIDER}
     except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError) as exc:
-        return {'ok': False, 'error': failure(exc), 'mode': LMSTUDIO_MODE}
+        return {'ok': False, 'error': failure(exc), 'mode': active_mode(), 'selected':active_model(), 'provider':LLM_PROVIDER}
 
 
 @app.post('/api/mood')
@@ -270,27 +309,35 @@ async def chat(body: ChatRequest):
         reply, source, warning = REPLIES[mood], 'rules', None
         thinking = None
         try:
-            if LMSTUDIO_MODE == 'auto':
+            if active_mode() == 'auto':
                 thinking = await device('/mood', {'name': 'thinking'})
                 try:
-                    if not MODEL:
+                    if not active_model():
                         raise ValueError('Set LMSTUDIO_MODEL to the exact server model ID.')
                     messages = [{'role': 'system', 'content': SYSTEM_PROMPT}]
                     messages += [m.model_dump() for m in body.history]
                     messages.append({'role': 'user', 'content': body.message})
-                    response = await app.state.client.post(LMSTUDIO_URL + '/v1/chat/completions', headers=model_headers(),
-                        json={'model': MODEL, 'messages': messages, 'stream': False,
-                              'max_tokens': 500, 'temperature': 0.3, 'response_format': RESPONSE_FORMAT},
+                    origin = GEMINI_URL if LLM_PROVIDER == 'gemini' else LMSTUDIO_URL + '/v1'
+                    payload = {'model':active_model(), 'messages':messages, 'stream':False,
+                               'max_tokens':2048 if LLM_PROVIDER == 'gemini' else 500,
+                               'temperature':0.3, 'response_format':RESPONSE_FORMAT}
+                    if LLM_PROVIDER == 'gemini' and GEMINI_MODEL.startswith('gemini-3'):
+                        payload['reasoning_effort'] = 'minimal'
+                    response = await app.state.client.post(origin + '/chat/completions', headers=model_headers(),
+                        json=payload,
                         timeout=httpx.Timeout(LMSTUDIO_TIMEOUT, connect=3))
                     response.raise_for_status()
                     content = response.json()['choices'][0]['message']['content']
                     if not isinstance(content, str) or not content.strip():
                         raise ValueError('Empty model reply')
                     reply, detection = parse_model(content)
+                    detection['method'] = LLM_PROVIDER
                     mood = detection['mood']
-                    source = 'lmstudio'
+                    source = LLM_PROVIDER
                 except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError) as exc:
                     warning = (str(exc) if isinstance(exc, ValueError) else failure(exc)) + ' Using a fixed rule-based reply.'
+                    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+                        warning = 'Model rate limit or quota reached. Using a fixed rule-based reply; retry later.'
         finally:
             app.state.panel.speak(reply)
             final_device = await device('/mood', {'name': mood})

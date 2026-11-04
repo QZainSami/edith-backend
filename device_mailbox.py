@@ -1,5 +1,5 @@
 """Single-device command mailbox. SQLite survives process restarts on persistent disks."""
-import sqlite3
+from storage import database
 from contextlib import contextmanager
 import time
 import uuid
@@ -8,22 +8,19 @@ MOODS = ('normal', 'happy', 'sad', 'angry', 'sleepy', 'curious', 'thinking', 'uw
 
 class Mailbox:
     def __init__(self, path, clock=time.time):
-        self.path, self.clock = str(path), clock
+        self.db = database(path)
+        self.path, self.clock = self.db.target, clock
         with self.connect() as db:
-            db.execute('CREATE TABLE IF NOT EXISTS state (slot INTEGER PRIMARY KEY, command TEXT, desired TEXT, expires REAL, ack TEXT, reported TEXT, seen REAL)')
-            columns = {row[1] for row in db.execute('PRAGMA table_info(state)')}
+            db.execute('CREATE TABLE IF NOT EXISTS state (slot INTEGER PRIMARY KEY, command TEXT, desired TEXT, expires DOUBLE PRECISION, ack TEXT, reported TEXT, seen DOUBLE PRECISION)')
+            columns = self.db.columns(db, 'state')
             if 'protocol' not in columns: db.execute('ALTER TABLE state ADD COLUMN protocol INTEGER DEFAULT 1')
             if 'reported_mode' not in columns: db.execute("ALTER TABLE state ADD COLUMN reported_mode TEXT DEFAULT 'face'")
             db.execute("INSERT OR IGNORE INTO state (slot,command,desired,expires,ack,reported,seen) VALUES (1, '', 'normal', 0, '', 'normal', 0)")
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=3)
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+        with self.db.connect() as connection:
+            yield connection
 
     def enqueue(self, mood):
         if mood not in MOODS:

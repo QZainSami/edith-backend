@@ -2,15 +2,16 @@
 import json
 import math
 import re
-import sqlite3
+from storage import database
 import time
 import unicodedata
 import uuid
 
 class Companion:
     def __init__(self, path, clock=time.time):
-        self.path, self.clock = str(path), clock
-        with sqlite3.connect(self.path) as db:
+        self.db = database(path)
+        self.path, self.clock = self.db.target, clock
+        with self.db.connect(write=True) as db:
             db.execute('CREATE TABLE IF NOT EXISTS companion (slot INTEGER PRIMARY KEY, body TEXT NOT NULL)')
             db.execute('INSERT OR IGNORE INTO companion VALUES (1, ?)', (json.dumps({
                 'mode': 'face', 'revision': str(uuid.uuid4()), 'utc_offset': 0,
@@ -19,28 +20,20 @@ class Companion:
                 'timer_id': '', 'timer_deadline': 0, 'speech_id': '', 'speech_end': 0}),))
 
     def read(self):
-        db = sqlite3.connect(self.path)
-        try:
+        with self.db.connect() as db:
             state = json.loads(db.execute('SELECT body FROM companion WHERE slot=1').fetchone()[0])
             for key, value in {'stopwatch_id':'', 'stopwatch_ms':0, 'stopwatch_started':0,
                                'alarm_id':'', 'alarm_at':0}.items():
                 state.setdefault(key, value)
             return state
-        finally:
-            db.close()
 
     def update(self, **changes):
-        db = sqlite3.connect(self.path)
-        try:
-            with db:
-                db.execute('BEGIN IMMEDIATE')
-                state = json.loads(db.execute('SELECT body FROM companion WHERE slot=1').fetchone()[0])
-                state.update(changes)
-                state['revision'] = str(uuid.uuid4())
-                db.execute('UPDATE companion SET body=? WHERE slot=1', (json.dumps(state),))
-            return state
-        finally:
-            db.close()
+        with self.db.connect(write=True) as db:
+            state = json.loads(db.execute('SELECT body FROM companion WHERE slot=1'+self.db.lock_suffix).fetchone()[0])
+            state.update(changes)
+            state['revision'] = str(uuid.uuid4())
+            db.execute('UPDATE companion SET body=? WHERE slot=1', (json.dumps(state),))
+        return state
 
     def screen(self, mode, utc_offset=None):
         changes = {'mode': mode, 'speech_end': 0}
@@ -57,9 +50,8 @@ class Companion:
 
     def stopwatch(self, action):
         # Compute and change elapsed time inside one write transaction.
-        with sqlite3.connect(self.path) as db:
-            db.execute('BEGIN IMMEDIATE')
-            state = json.loads(db.execute('SELECT body FROM companion WHERE slot=1').fetchone()[0])
+        with self.db.connect(write=True) as db:
+            state = json.loads(db.execute('SELECT body FROM companion WHERE slot=1'+self.db.lock_suffix).fetchone()[0])
             now = self.clock()
             started = state.get('stopwatch_started', 0)
             elapsed = min(359999990, max(0, state.get('stopwatch_ms', 0) + (int((now-started)*1000) if started else 0)))

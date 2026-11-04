@@ -3,6 +3,7 @@ import asyncio
 import math
 import time
 import httpx
+from storage import StorageUnavailable
 
 async def refresh_weather(app, force=False):
     async with app.state.weather_lock:
@@ -34,6 +35,6 @@ async def weather_loop(app, sync_local):
             await refresh_weather(app)
             if app.state.transport == 'local' and (app.state.local_command['command_id'] or app.state.panel.read()['mode'] == 'dashboard'):
                 await sync_local()
-        except (httpx.HTTPError, ValueError, OSError):
+        except (httpx.HTTPError, ValueError, OSError, StorageUnavailable):
             pass
         await asyncio.sleep(5)

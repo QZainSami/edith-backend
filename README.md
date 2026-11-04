@@ -1,5 +1,7 @@
 # 🤖 EDITH Backend
 
+☁️ **For free online deployment with Gemini and persistent PostgreSQL, follow [CLOUD_RENDER.md](CLOUD_RENDER.md).** Local LM Studio/SQLite instructions below still apply to local development.
+
 Cross-platform Python/FastAPI backend for EDITH, an ESP32-S3 desktop companion. Provides browser chat, contextual OLED face selection through LM Studio, and local or authenticated polling control of the device.
 
 Works with Python 3.11+ on Windows and Linux. CachyOS/KDE uses the Linux instructions below. The application uses portable paths and SQLite; no CUDA or GPU packages are required for the backend itself. Local model speed depends on the machine running LM Studio.

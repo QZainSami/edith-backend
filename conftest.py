@@ -6,6 +6,10 @@ Individual tests can enable poll mode or mock model generation with monkeypatch.
 import os
 
 os.environ.update({
+    'LLM_PROVIDER':'lmstudio',
+    'GEMINI_API_KEY':'',
+    'DATABASE_URL':'',
+    'RENDER':'false',
     'EDITH_IP': 'http://edith.test',
     'DEVICE_TRANSPORT': 'local',
     'LMSTUDIO_MODE': 'off',
