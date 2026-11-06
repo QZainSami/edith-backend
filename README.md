@@ -139,7 +139,7 @@ Tests simulate model and device responses and isolate themselves from the privat
 
 ## 🧠 How it works
 
-Gemma returns a structured reply, mood and short reason using recent conversation. The backend validates the face against eight supported moods. If generation fails, transparent keyword/context rules provide a fixed reply and face with a warning. This is a face suggestion, not an emotion diagnosis. `emotion.py` contains the prompt, fallback rules and response validation.
+Gemma returns a structured reply, mood and short reason using recent conversation. The backend validates the face against eleven supported moods (including shy, blush and the cheeky unknown expression). If generation fails, transparent keyword/context rules provide a fixed reply and face with a warning. This is a face suggestion, not an emotion diagnosis. `emotion.py` contains the prompt, fallback rules and response validation.
 
 The browser keeps six completed exchanges in memory; Clear chat or page refresh discards them. The backend writes device and companion state to SQLite (`data/device.sqlite3` by default); chat messages are not stored there. Set `EDITH_STATE_DB` to another writable path if needed. Use one backend instance/worker; tabs share the physical device. Model responses are limited to 500 generated tokens per request.
 

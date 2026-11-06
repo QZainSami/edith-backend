@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import time
 import uuid
 
-MOODS = ('normal', 'happy', 'sad', 'angry', 'sleepy', 'curious', 'thinking', 'uwu')
+MOODS = ('normal', 'happy', 'sad', 'angry', 'sleepy', 'curious', 'thinking', 'uwu', 'shy', 'blush', 'unknown')
 
 class Mailbox:
     def __init__(self, path, clock=time.time):

@@ -25,8 +25,8 @@ from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / '.env')
-Mood = Literal['normal', 'happy', 'sad', 'angry', 'sleepy', 'curious', 'thinking', 'uwu']
-MOODS = ('normal', 'happy', 'sad', 'angry', 'sleepy', 'curious', 'thinking', 'uwu')
+Mood = Literal['normal', 'happy', 'sad', 'angry', 'sleepy', 'curious', 'thinking', 'uwu', 'shy', 'blush', 'unknown']
+MOODS = ('normal', 'happy', 'sad', 'angry', 'sleepy', 'curious', 'thinking', 'uwu', 'shy', 'blush', 'unknown')
 
 
 def base_url(value: str) -> str:
@@ -94,6 +94,9 @@ REPLIES = {
     'sad': "That sounds difficult. Want to tell me what happened?",
     'angry': "That sounds frustrating. Want to work through what happened?",
     'sleepy': "Sounds like you could use a break. Want to wrap up one small thing first?",
+    'shy': 'You caught me being shy. ☺️',
+    'blush': 'Aw, that made me blush. 😊',
+    'unknown': 'Feeling a little mischievous. 😉',
     'uwu': "UwU! Cozy companion mode activated.",
     'happy': "That sounds like a bright moment! Tell me more.",
     'thinking': "Let's break it into smaller steps. What are you trying to work out?",
