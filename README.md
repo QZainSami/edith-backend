@@ -122,7 +122,10 @@ Run the backend on the trusted LAN:
 uv run python -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-Find the backend machine's LAN IPv4 address using `ipconfig` on Windows, or `ip -4 address` and `ip route` on Linux. Set the middleware's server URL to `http://THAT-IP:8000` for this temporary LAN test. The server address must be updated when moving the backend from PC to laptop or changing networks. Do not use `0.0.0.0` as the device's destination address.
+Find the backend machine's LAN IPv4 address using `ipconfig` on Windows, or `ip -4 address` and `ip route` on Linux. For portable use without looking up changing IPs:
+- **Windows Laptop Hotspot:** When Windows Mobile Hotspot is turned on, the host address is always **`http://192.168.137.1:8000`**.
+- **Phone Hotspot with Static IP:** Set laptop IPv4 manually to **`192.168.43.100`**, giving **`http://192.168.43.100:8000`**.
+Set the middleware's server URL to match your chosen method. Do not use `0.0.0.0` as the device's destination address.
 
 Allow inbound TCP port 8000 only on the trusted LAN using the host firewall if needed; do not disable the firewall. Both machines/devices must be on a reachable network. For public hosting use HTTPS and the correct root CA, with HTTP test mode disabled in firmware. Local polling has been verified on Windows with the ESP32. Public hosting and hotspot end-to-end testing remain pending.
 
